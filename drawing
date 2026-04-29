@@ -7,10 +7,15 @@ description: SVG 图表绘制规范，融合技术风格与中文友好设计。
 
 ## 核心原则
 
+### 首次生成即达标
+首次生成的 SVG 必须通过文末全部验证清单，不依赖用户反馈来修正基础布局问题（间距、留白、对齐、viewBox 裁切）。生成完成后自行逐条检查，发现问题立即修正后再输出。
+
 ### 元素不重叠
 - 文字不能叠在方框或线条上
 - 线条不能穿过方框（除非是连接该框的箭头）
 - 文字与线条保持 10-20px 间距
+- **同层/相邻方框间距见下文"区块间距"小节**（统一标准：≥25px，推荐 25-30px）
+- 标注色块（图例）放在图表外部（底部或侧边），不要叠在内容区域上
 
 ```xml
 <!-- ✅ 正确：文字在线旁边 -->
@@ -32,9 +37,33 @@ description: SVG 图表绘制规范，融合技术风格与中文友好设计。
 左边距 = (viewBox宽度 - 内容宽度) / 2
 ```
 
+**标题居中要对"内容中心"，不是 viewBox 中心**（内容不对称时两者不同）：
+
 ```xml
-<text x="[viewBox宽度/2]" y="[top_padding + font_ascent]" text-anchor="middle">标题</text>
+<!-- 内容中心 = (内容左边界 + 内容右边界) / 2 -->
+<text x="[内容中心x]" y="[top_padding + font_ascent]" text-anchor="middle">标题</text>
 ```
+
+仅当内容左右对称时，`内容中心x = viewBox宽度/2`。不对称时用 `<g transform="translate(...)">` 整体居中后，标题的 x 也要跟着更新到新的内容中心。
+
+### 事后整体偏移
+
+如果 SVG 已画完才发现左右（或上下）留白不对称，不必改每个元素的坐标。把内容整体包一层 `<g transform="translate(dx, dy)">` 即可：
+
+```xml
+<svg viewBox="0 0 800 460" ...>
+  <defs>...</defs>
+  <g transform="translate(22, 0)">
+    <!-- 所有内容在这里，坐标不变 -->
+  </g>
+</svg>
+```
+
+**偏移量计算**：`dx = (右留白 - 左留白) / 2`，其中留白 = viewBox 边界到最近内容元素的距离。
+- `dx > 0`：内容整体向右平移（原内容偏左时用）
+- `dx < 0`：内容整体向左平移（原内容偏右时用）
+
+适用场景：发现内容整体偏左/偏右，但不想逐一修改每个 `x` 坐标。缺点：文件里的坐标值不再等于渲染位置，后续调整需要减掉偏移量心算——所以如果后面还要大改布局，建议一次性把偏移吃进各坐标再删掉 `<g>`。
 
 ### viewBox 边距
 标题是内容的一部分，上下边距应从标题开始计算：
@@ -61,6 +90,34 @@ viewBox 高度 = 内容底部 y + 边距
 - 同列方框中心点对齐
 - 外框完全包围内部方框：`外框尺寸 = 内容尺寸 + 边距×2`
 
+### 虚线分组框（容器框）
+
+用于将多个相关方框归为一组（如"服务端"、"客户端"、"员工实例"等）。
+
+**样式一致性**：同一张图中所有虚线分组框必须统一以下属性：
+- `stroke-dasharray`（推荐 `6,4`）
+- `rx`（圆角，推荐 8-12）
+- `fill`（推荐 `#f8fafc` 或 `none`）
+- 内 padding（推荐 15-20px）
+- 标题字号（推荐 11px，与方框主文字 12px 区分）
+
+**标题放置**：分组框标题放在框的左上角内侧（`x = 框x + 10, y = 框y + 14`），使用次文字色 `#64748b`。
+
+**垂直居中陷阱**：分组框的垂直位置应基于 **标题 + 内部内容** 的整体高度来计算，而不是只看框本身。带标题的分组框，标题占据顶部约 20-25px 空间，内部方框从标题下方开始排列：
+
+```xml
+<!-- ✅ 分组框：标题 + 内容整体布局 -->
+<!-- 框顶部 y=100，标题占 20px，内部方框从 y=125 开始 -->
+<rect x="50" y="100" width="200" height="120" rx="10"
+      stroke="#94a3b8" stroke-dasharray="6,4" fill="#f8fafc"/>
+<text x="60" y="114" font-size="11" fill="#64748b">服务端</text>
+<!-- 内部方框 -->
+<rect x="65" y="125" width="170" height="36" rx="6" .../>
+<rect x="65" y="170" width="170" height="36" rx="6" .../>
+```
+
+**连接线指向分组**：当连接线逻辑上指向一组元素（而非其中某一个）时，应连接到分组框边界，而不是只连到组内某个元素。或者用分组框把多个元素框起来后，箭头指向分组框。
+
 ### 方框尺寸
 根据字体大小计算方框高度，确保足够的内边距：
 
@@ -70,12 +127,30 @@ viewBox 高度 = 内容底部 y + 边距
 | 双行文字 | font-size × 3 + 行距 | 36 + 18 = 54px |
 | 多行文字 | font-size × 3 + (行数-1) × 行距 | 每多一行 +18px |
 
+**高度公式的构成**：`font-size × 3 = 上 padding (≈font-size) + 字高 (≈font-size) + 下 padding (≈font-size)`。非标准字号按此比例自行推算。
+
 **行距推荐**：font-size × 1.5（如 12px 字体用 18px 行距）
+
+### 方框内文字垂直居中（baseline 定位）
+
+SVG 的 `<text y=...>` 指的是 **baseline 位置**，不是字顶。要让文字视觉居中于方框：
+
+```
+文字 y = 方框中心 y + font-size × 0.35
+      = 方框 y + 方框高度/2 + font-size × 0.35
+```
+
+系数 0.35 是"字形视觉中心到 baseline"的经验值（相当于 font-size 的 1/3 左右）。
+
+**区分两个系数**：
+- `font-size × 0.75`（ascent）：用于**标题等从顶部定位**的场景（y = top_padding + ascent）
+- `font-size × 0.35`（baseline offset）：用于**方框内垂直居中**的场景
 
 ```xml
 <!-- 单行：height = 12 × 3 = 36px -->
 <rect x="30" y="50" width="110" height="36" rx="6" .../>
-<text x="85" y="73" ...>单行文字</text>  <!-- y = 50 + 36/2 + 12/3 ≈ 73 -->
+<!-- y = 50 + 36/2 + 12×0.35 = 50 + 18 + 4.2 ≈ 72 -->
+<text x="85" y="72" ...>单行文字</text>
 
 <!-- 双行：height = 36 + 18 = 54px -->
 <rect x="30" y="50" width="110" height="54" rx="6" .../>
@@ -96,17 +171,26 @@ viewBox 高度 = 内容底部 y + 边距
 
 ## 连接线规范
 
-### 使用平滑曲线
+### 连接线选择
+同轴直连用 L 直线；需要**转弯或绕行**时用 C/Q 平滑曲线，不要用直角折线。
+
 ```xml
-<!-- ❌ 直角折线 -->
+<!-- ✅ 水平同轴：直线 -->
+<path d="M190,77 L 320,77" .../>
+
+<!-- ✅ 垂直同轴：直线 -->
+<path d="M130,145 L 130,213" .../>
+
+<!-- ❌ 转弯用直角折线 -->
 <path d="M100,100 L100,200 L200,200" .../>
 
-<!-- ✅ 平滑曲线 -->
+<!-- ✅ 转弯用平滑曲线 -->
 <path d="M100,100 C 100,150 150,200 200,200" .../>
 ```
 
 | 场景 | 推荐 | 语法 |
 |------|------|------|
+| 同轴直连（水平/垂直） | L | `L 终点x,y` |
 | 简单转弯 | Q | `Q 控制点x,y 终点x,y` |
 | S形/复杂路径 | C | `C 控制点1x,y 控制点2x,y 终点x,y` |
 
@@ -115,46 +199,67 @@ viewBox 高度 = 内容底部 y + 边距
 - **间距对等**：箭头与起始框、到达框间距各 5px
 - **标签居中**：`x = (源右边界 + 目标左边界) / 2`，配合 `text-anchor="middle"`
 
-**路径端点计算**（留白 5px，箭头伸出线条终点 2px）：
+**曲线路径的箭头方向修正**：`orient="auto"` 让箭头跟随路径末端切线方向。C/Q 曲线末端切线可能偏斜，导致箭头歪掉。解决方法：调整贝塞尔曲线的第二控制点（cp2），使 cp2→终点 的方向就是期望的箭头方向。
 
-核心原则：**起点离开源框 5px，终点距离目标框 7px**（5px 留白 + 2px 箭头伸出）。
+```xml
+<!-- ❌ cp2 位置随意，箭头方向不可控 -->
+<path d="M100,100 C 100,200 250,200 300,250" marker-end="url(#arrow)"/>
 
-由于使用 `refX="6"`，箭头尖端比线条终点多伸出 2px，所以终点需要额外后退 2px。
+<!-- ✅ cp2 与终点同 x，切线自然朝下 -->
+<path d="M100,100 C 100,200 300,220 300,250" marker-end="url(#arrow)"/>
+
+<!-- ✅ cp2 与终点同 y，切线自然朝右 -->
+<path d="M100,100 C 100,200 270,250 300,250" marker-end="url(#arrow)"/>
+```
+
+**控制箭头方向的规则**：
+| 期望方向 | cp2 约束 | 示例 |
+|---------|---------|------|
+| ↓ 向下 | cp2.x = end.x, cp2.y < end.y | `C ...,... ex,ey-20 ex,ey` |
+| → 向右 | cp2.y = end.y, cp2.x < end.x | `C ...,... ex-20,ey ex,ey` |
+| ← 向左 | cp2.y = end.y, cp2.x > end.x | `C ...,... ex+20,ey ex,ey` |
+| ↑ 向上 | cp2.x = end.x, cp2.y > end.y | `C ...,... ex,ey+20 ex,ey` |
+
+**路径端点计算**（留白 5px，箭头伸出线条终点 6px）：
+
+核心原则：**起点离开源框 5px，终点距离目标框 11px**（5px 留白 + 6px 箭头延伸）。
+
+由于使用 `refX="2"`（箭头尾部凹口），箭头尖端从线条终点向前延伸 6px（8-2=6），线条衔接在箭头尾部中心，视觉连贯。
 
 **四个方向的计算公式**：
 
 | 方向 | 起点 | 终点 |
 |------|------|------|
-| → 向右 | 源框右边界 + 5 | 目标框左边界 - 7 |
-| ← 向左 | 源框左边界 - 5 | 目标框右边界 + 7 |
-| ↓ 向下 | 源框底边界 + 5 | 目标框顶边界 - 7 |
-| ↑ 向上 | 源框顶边界 - 5 | 目标框底边界 + 7 |
+| → 向右 | 源框右边界 + 5 | 目标框左边界 - 11 |
+| ← 向左 | 源框左边界 - 5 | 目标框右边界 + 11 |
+| ↓ 向下 | 源框底边界 + 5 | 目标框顶边界 - 11 |
+| ↑ 向上 | 源框顶边界 - 5 | 目标框底边界 + 11 |
 
 ```xml
 <!-- 向右箭头 →：源框右边界180，目标框左边界220 -->
-<!-- 起点: 180+5=185, 终点: 220-7=213 -->
-<path d="M185,70 L 213,70" marker-end="url(#arrow)"/>
+<!-- 起点: 180+5=185, 终点: 220-11=209, 箭尖到 209+6=215 -->
+<path d="M185,70 L 209,70" marker-end="url(#arrow)"/>
 
 <!-- 向左箭头 ←：源框左边界220，目标框右边界180 -->
-<!-- 起点: 220-5=215, 终点: 180+7=187 -->
-<path d="M215,70 L 187,70" marker-end="url(#arrow)"/>
+<!-- 起点: 220-5=215, 终点: 180+11=191, 箭尖到 191-6=185 -->
+<path d="M215,70 L 191,70" marker-end="url(#arrow)"/>
 
 <!-- 向下箭头 ↓：源框底部140，目标框顶部170 -->
-<!-- 起点: 140+5=145, 终点: 170-7=163 -->
-<path d="M130,145 L 130,163" marker-end="url(#arrow)"/>
+<!-- 起点: 140+5=145, 终点: 170-11=159, 箭尖到 159+6=165 -->
+<path d="M130,145 L 130,159" marker-end="url(#arrow)"/>
 
 <!-- 向上箭头 ↑：源框顶部170，目标框底部140 -->
-<!-- 起点: 170-5=165, 终点: 140+7=147 -->
-<path d="M130,165 L 130,147" marker-end="url(#arrow)"/>
+<!-- 起点: 170-5=165, 终点: 140+11=151, 箭尖到 151-6=145 -->
+<path d="M130,165 L 130,151" marker-end="url(#arrow)"/>
 ```
 
 **双向连接示例**（两个框之间有上下双向箭头）：
 ```xml
 <!-- 框A底部=375，框B顶部=420 -->
 <!-- 向下箭头: A→B -->
-<path d="M320,380 L 320,413" marker-end="url(#arrow)"/>  <!-- 375+5, 420-7 -->
+<path d="M320,380 L 320,409" marker-end="url(#arrow)"/>  <!-- 375+5, 420-11 -->
 <!-- 向上箭头: B→A -->
-<path d="M480,415 L 480,382" marker-end="url(#arrow)"/>  <!-- 420-5, 375+7 -->
+<path d="M480,415 L 480,386" marker-end="url(#arrow)"/>  <!-- 420-5, 375+11 -->
 ```
 
 ### 绕过障碍物
@@ -165,8 +270,88 @@ viewBox 高度 = 内容底部 y + 边距
       fill="none" stroke="#a855f7" stroke-dasharray="6,4" marker-end="url(#arrow)"/>
 ```
 
-### 区块间距
-相邻区块间距 ≥18px（5px 留白 × 2 + 8px 箭头）。推荐 20-30px 以保持视觉清晰。
+### 区块间距（**全局统一标准**）
+相邻方框/区块间距 **≥25px，推荐 25-30px**。
+
+构成：5px 起点留白 + 11px 终点+箭头延伸 + ≥6px 可见线段 + 安全冗余 ≈ 25px。**可见线段至少 6px**，否则箭头退化为一个点。
+
+**紧凑原则**：间距不要超过 30px。间距过大（>40px）会导致整图松散，箭头连线过长失去紧凑感。目标是箭头两端各留 5px / 11px，中间保持 6-12px 的可见线段即可。
+
+**整体紧凑度**：完成后从整体视角评估疏密——如果图表内容面积占 viewBox 面积明显偏小（大片空白），收紧间距或缩小 viewBox。常见原因：方框间距 >30px、viewBox 边距 >25px、分组框内 padding 过大。
+
+> 这是全文档唯一的区块间距标准；"元素不重叠"与"验证清单"均引用此值。
+
+### SVG 元素绘制顺序（z-order）
+
+SVG 没有 z-index，**后绘制的元素在上层**。必须按以下顺序排列：
+
+```xml
+<!-- 1. 最底层：背景框（虚线分组框、泳道区域） -->
+<rect ... stroke-dasharray="6,4" fill="#f8fafc"/>
+
+<!-- 2. 中间层：连接线和箭头 -->
+<path d="..." marker-end="url(#arrow)"/>
+
+<!-- 3. 最上层：方框和文字 -->
+<rect ... fill="#dbeafe"/>
+<text ...>标签</text>
+```
+
+**常见错误**：先画连接线，再画背景虚线框 → 连接线被遮挡。
+
+**例外：跨层回路线**：迭代回路、跨区域虚线等需要**跨越多个方框**的连线，必须放在方框之后（第 4 层）绘制，否则会被方框遮挡：
+
+```xml
+<!-- 1. 背景框 -->
+<!-- 2. 普通连接线 -->
+<!-- 3. 方框和文字 -->
+<!-- 4. 跨层回路线（最上层，覆盖在方框之上） -->
+<path d="..." stroke-dasharray="6,4" marker-end="url(#arrow-purple)"/>
+```
+
+## 文字宽度估算（防越界）
+
+放置文字前必须估算其右边界，确认不侵入相邻元素：
+
+| 字体大小 | 单字符宽度（约） | 中文字符宽度（约） |
+|---------|----------------|-----------------|
+| 8px | 4.5px | 8px |
+| 9px | 5.0px | 9px |
+| 10px | 5.5px | 10px |
+| 11px | 6.0px | 11px |
+| 12px | 7.0px | 12px |
+
+**估算公式**：
+- `text-anchor="start"`: 右边界 ≈ x + 字符数 × 单字宽
+- `text-anchor="middle"`: 左/右边界 ≈ x ± (字符数 × 单字宽) / 2
+- `text-anchor="end"`: 左边界 ≈ x - 字符数 × 单字宽
+
+放置前检查：文字右边界 + 10px < 右侧相邻元素左边界。
+
+```xml
+<!-- ❌ 文字 "4K tokens (= mini-batch)" 从 x=274 开始 -->
+<!-- 24字符 × 5px ≈ 120px，右边界 ≈ 394，侵入了 x=350 的方框 -->
+<text x="274" y="115" font-size="9">4K tokens (= mini-batch)</text>
+
+<!-- ✅ 移到方框下方，居中放置，不侵入任何相邻元素 -->
+<text x="154" y="138" font-size="9" text-anchor="middle">4K tokens (= mini-batch)</text>
+```
+
+## 曲线标签放置
+
+弧线/曲线的描述标签不能放在曲线路径上（会被线条穿过），需放在曲线的凸侧或凹侧：
+
+```xml
+<!-- ❌ 标签 y=218，曲线经过 y=225 附近，文字被线穿过 -->
+<text x="350" y="218">Skip Connection</text>
+<path d="M82,165 C 82,225 620,225 646,225" .../>
+
+<!-- ✅ 标签 y=222，曲线最低点 y=260，间距 38px -->
+<text x="350" y="222">Skip Connection</text>
+<path d="M82,149 C 82,260 600,255 640,255" .../>
+```
+
+**规则**：标签与曲线最近点保持 ≥ 15px 间距。向下弯的曲线，标签放在上方；向上弯的曲线，标签放在下方。
 
 ## 坐标管理
 
@@ -178,16 +363,25 @@ viewBox 高度 = 内容底部 y + 边距
 
 ### 移动元素时同步更新
 1. viewBox 尺寸
-2. 指向/来自该元素的所有箭头
+2. 指向/来自该元素的所有箭头（起点、终点、控制点）
 3. 相关标签位置
-4. 受影响的其他元素
+4. **包裹该元素的背景虚线框/分组框**（泳道、容器框）—— 最易遗漏
+5. 同行/同列对齐的其他方框
+6. 受影响的其他元素
 
 ## 样式规范
 
-### 字体
+### 字体（必须包含）
+
+**每个 SVG 必须在 `<style>` 中声明中文字体**，这是硬性要求：
+
+```xml
+<style>
+  text { font-family: 'PingFang SC', 'Microsoft YaHei', 'Noto Sans CJK SC', system-ui, sans-serif; }
+</style>
 ```
-font-family: 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif
-```
+
+回退顺序：macOS (PingFang SC) → Windows (Microsoft YaHei) → Linux (Noto Sans CJK SC) → 系统默认。**必须保留 `Noto Sans CJK SC`**，否则 Linux 服务端渲染中文会掉回不支持中文的字体。
 
 | 元素 | 大小 |
 |------|------|
@@ -217,24 +411,24 @@ font-family: 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif
 
 ```xml
 <defs>
-  <!-- 默认灰色箭头 -->
-  <marker id="arrow" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto">
+  <!-- 默认灰色箭头（必须声明 markerUnits="userSpaceOnUse"） -->
+  <marker id="arrow" markerWidth="8" markerHeight="8" refX="2" refY="4" orient="auto" markerUnits="userSpaceOnUse">
     <path d="M0,0 L8,4 L0,8 L2,4 z" fill="#64748b"/>
   </marker>
   <!-- 语义色箭头（与方框边框色对应） -->
-  <marker id="arrow-blue" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto">
+  <marker id="arrow-blue" markerWidth="8" markerHeight="8" refX="2" refY="4" orient="auto" markerUnits="userSpaceOnUse">
     <path d="M0,0 L8,4 L0,8 L2,4 z" fill="#3b82f6"/>
   </marker>
-  <marker id="arrow-orange" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto">
+  <marker id="arrow-orange" markerWidth="8" markerHeight="8" refX="2" refY="4" orient="auto" markerUnits="userSpaceOnUse">
     <path d="M0,0 L8,4 L0,8 L2,4 z" fill="#f59e0b"/>
   </marker>
-  <marker id="arrow-green" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto">
+  <marker id="arrow-green" markerWidth="8" markerHeight="8" refX="2" refY="4" orient="auto" markerUnits="userSpaceOnUse">
     <path d="M0,0 L8,4 L0,8 L2,4 z" fill="#22c55e"/>
   </marker>
-  <marker id="arrow-purple" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto">
+  <marker id="arrow-purple" markerWidth="8" markerHeight="8" refX="2" refY="4" orient="auto" markerUnits="userSpaceOnUse">
     <path d="M0,0 L8,4 L0,8 L2,4 z" fill="#a855f7"/>
   </marker>
-  <marker id="arrow-red" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto">
+  <marker id="arrow-red" markerWidth="8" markerHeight="8" refX="2" refY="4" orient="auto" markerUnits="userSpaceOnUse">
     <path d="M0,0 L8,4 L0,8 L2,4 z" fill="#ef4444"/>
   </marker>
 </defs>
@@ -253,14 +447,31 @@ font-family: 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif
 
 **关键参数**：
 - `orient="auto"` 使箭头自动旋转指向路径方向
-- `refX="6"` 线条终点在箭头内部 2px 处，避免线条穿透尖端
+- `markerUnits="userSpaceOnUse"` **必须显式声明**，否则默认 `strokeWidth` 会按线条粗细缩放箭头（stroke-width=2 时箭头放大 2 倍，导致超出预期间距）
+- `refX="2"` 线条终点对齐箭头尾部凹口中心，衔接自然
 - `refY="4"` 垂直居中（箭头高度 8，中点为 4）
 - 箭头路径 `M0,0 L8,4 L0,8 L2,4 z` 形成凹口形状，尖端在 x=8
-- 箭头实际伸出线条终点 2px，保持尖端清晰
+- 箭头尖端从线条终点向前延伸 6px（8-2=6），终点计算需用 `目标边界 - 11`
 
-## XML 特殊字符
+**粗线条箭头**：当 stroke-width > 1.5 时（如粗虚线），8×8 箭头会显得太小。需定义等比放大的 marker：
 
-SVG 是 XML 格式，文本中的特殊字符必须转义：
+```xml
+<!-- 粗线条用大号箭头（1.5倍）：tip extends 12-3=9px -->
+<marker id="arrow-red-lg" markerWidth="12" markerHeight="12" refX="3" refY="6"
+        orient="auto" markerUnits="userSpaceOnUse">
+  <path d="M0,0 L12,6 L0,12 L3,6 z" fill="#ef4444"/>
+</marker>
+```
+
+| 线条 stroke-width | marker 尺寸 | refX | tip 延伸 | 终点公式 |
+|-------------------|------------|------|---------|---------|
+| ≤ 1.5 | 8×8 | 2 | 6px | 目标边界 - 11 |
+| 1.5 ~ 2.5 | 12×12 | 3 | 9px | 目标边界 - 14 |
+| > 2.5 | 16×16 | 4 | 12px | 目标边界 - 17 |
+
+## XML 特殊字符（高风险，必须检查）
+
+SVG 是 XML 格式，文本中的特殊字符**必须**转义，否则整个 SVG 无法渲染：
 
 | 字符 | 转义 | 示例 |
 |------|------|------|
@@ -278,6 +489,23 @@ SVG 是 XML 格式，文本中的特殊字符必须转义：
 <text>Load &amp; Save</text>
 ```
 
+### 程序生成 SVG 时的转义
+
+用 Python/JS 动态生成 SVG 时，来自外部数据源（CSV、数据库、API）的文本必须转义后再拼入 SVG：
+
+```python
+def svg_escape(text):
+    return str(text).replace('&','&amp;').replace('<','&lt;').replace('>','&gt;').replace('"','&quot;')
+
+# ❌ 直接拼接外部数据（"Earn&Wealth" → XML 解析失败，图片无法渲染）
+svg += f'<text>{team_name}</text>'
+
+# ✅ 转义后拼接
+svg += f'<text>{svg_escape(team_name)}</text>'
+```
+
+**高危数据源**：团队名（含 `&`）、需求描述（含 `<>`）、用户输入、文件名
+
 ## 常见问题
 
 | 问题 | 排查 |
@@ -287,17 +515,64 @@ SVG 是 XML 格式，文本中的特殊字符必须转义：
 | 标签偏移 | 确认 `text-anchor="middle"` 且 x = 间隙中心 |
 | 箭头方向错 | 检查路径最后一段方向（x/y 递增/递减） |
 | XML 解析错误 | 检查文本中的 `&` `<` `>` 是否已转义 |
+| 内容底部被裁切 | viewBox 高度不够，需 = 最下方元素底边界 + 25px |
+| 虚线分组框加标题后不居中 | 垂直居中需基于"标题+内容"整体高度，见"虚线分组框"小节 |
+| 整图空白过多 | 检查方框间距是否 >30px、viewBox 边距是否 >25px |
 
 ## 验证清单
 
 - [ ] 元素不重叠（文字、方框、线条）
-- [ ] 箭头间距两端对等（5px）
+- [ ] 文字右边界未侵入相邻元素（按字符宽度估算）
+- [ ] 曲线标签与曲线最近点间距 ≥ 15px
+- [ ] 箭头间距两端对等（5px），可见线段 ≥ 6px
+- [ ] marker 声明了 `markerUnits="userSpaceOnUse"`
+- [ ] 粗线条（stroke-width > 1.5）使用放大版 marker
 - [ ] 连接线使用 C/Q 曲线，无直角
 - [ ] 标签居中（text-anchor="middle"）
 - [ ] 绕行路径在障碍物外
-- [ ] 区块间距 ≥25px
+- [ ] 区块间距 ≥25px（推荐 25-30px，见"区块间距"小节）
 - [ ] 标题居中，同行方框尺寸接近
 - [ ] 添加 width 属性，viewBox 与内容匹配
 - [ ] 方框高度足够（单行 ≥ font-size × 3）
 - [ ] viewBox 上下边距相近（20-25px，从标题顶部计算）
+- [ ] viewBox 左右留白对称（不对称时用 `<g transform="translate(dx,0)">` 整体偏移）
 - [ ] 特殊字符已转义（`&` → `&amp;`，`<` → `&lt;`）
+- [ ] 所有元素在 viewBox 可视范围内（底部 = 最下方元素底边界 + 25px）
+- [ ] 每条连接线有明确语义（标注或上下文可推断源和目标）
+- [ ] 虚线分组框样式统一（dasharray、圆角、fill、padding、标题字号）
+- [ ] 整图无大片空白（间距未超 30px，viewBox 贴合内容）
+
+## 修改工作流
+
+### 1. 收集阶段：先凑齐再动手
+
+收到 SVG 修改请求时，**不要立刻修改**，先判断：
+
+- 用户只给了 **1 个修改点** → 回复"还有其他要调的吗？"引导一次说完
+- 用户给了 **多个修改点** → 进入执行阶段，一次性全部完成
+
+目标：减少 round-trip，避免每改一处就重新输出完整 SVG。
+
+### 2. 执行阶段：一次性应用，附变更清单
+
+所有修改一次性完成后，先输出变更清单，再展示最终 SVG：
+
+```
+变更清单：
+1. 标题间距 20px → 30px
+2. 方框A 颜色 #dbeafe → #f3e8ff
+3. 连接线 L1 路径调整（绕过新增方框）
+```
+
+**不要改一个展示一个**，用户只需要看到最终结果。
+
+### 3. 布局微调：理解意图，连带调整
+
+用户说"把方框 A 往右移 20px"时，不要机械地只改方框 A 的 x 坐标。需要连带处理：
+
+- 指向/来自方框 A 的所有箭头路径
+- 与方框 A 同行的其他方框对齐关系
+- 方框 A 上的文字标签位置
+- 包裹方框 A 的外框/背景框尺寸
+
+**间距/对齐类请求**（"再紧凑一点"、"左对齐"、"居中"）→ 理解整体意图，一步到位调整所有相关元素，避免用户反复微调像素值。
